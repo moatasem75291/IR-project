@@ -52,12 +52,11 @@ The structure of `searchEngine.py` mirrors that of `helper.py` but encapsulates 
 
 To utilize the search engine, follow these steps:
 
-1. Ensure you have the required libraries installed. You can install them using `pip install -r requirements.txt`.
+
+1. Run `searchEngine.py` to execute the search engine functionalities and test the system.
 
 2. Run `helper.py` to import the necessary functions and variables.
 
-3. Run `searchEngine.py` to execute the search engine functionalities and test the system.
-
-4. View the results in the console and check the generated text file.
+3. View the results in the console and check the generated text file.
 
 Feel free to customize the code according to your specific requirements. Happy searching!
