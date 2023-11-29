@@ -1,7 +1,6 @@
 #####################################################################
 #           IMPORT LIBRARIES AND SOME VARIABLES                     #
 #####################################################################
-
 import numpy as np
 import os
 from nltk.tokenize import word_tokenize
@@ -9,7 +8,6 @@ from nltk.corpus import stopwords
 from natsort import natsorted
 import math
 import pandas as pd
-from collections import defaultdict
 
 stop_words = stopwords.words("english")
 stop_words.remove("in")
@@ -42,8 +40,6 @@ def tokenize_and_stem(doc):
 #####################################################################
 #                      POSITIONAL INDEX MODEL                       #
 #####################################################################
-
-
 def build_positional_index(document_of_terms):
     for doc_id, document in enumerate(document_of_terms, start=1):
         for position, term in enumerate(document):
@@ -52,29 +48,6 @@ def build_positional_index(document_of_terms):
             positional_index[term][0] += 1
             positional_index[term][1].setdefault(doc_id, []).append(position)
     return positional_index
-
-
-#####################################################################
-#                            PHRASE QUERY                           #
-#####################################################################
-
-
-def find_matching_positions(query, positional_index):
-    term_lists = [[] for _ in range(10)]
-
-    for term in tokenize_and_stem(query):
-        if term not in positional_index:
-            return "No matches!!"
-        else:
-            for key, positions in positional_index[term][1].items():
-                term_lists[key - 1].extend(positions)
-
-    matching_positions = [
-        f"doc_{pos}"
-        for pos, positions in enumerate(term_lists, start=1)
-        if len(positions) == len(tokenize_and_stem(query))
-    ]
-    return f'I found this docs: {", ".join(matching_positions)}'
 
 
 #####################################################################
@@ -108,8 +81,6 @@ def create_term_frequency_dataframe(document_of_terms):
 #####################################################################
 #                         WEIGHTED TF TABLE                         #
 #####################################################################
-
-
 def weighted_TF(x):
     return math.log10(x) + 1 if x > 0 else 0
 
@@ -189,7 +160,7 @@ def create_query_dataframe(query_terms, normalized_term_freq_idf, tfdf):
 
 
 def calculate_product(query_df, normalized_term_freq_idf):
-    product = normalized_term_freq_idf.multiply(query_df["w_tf"], axis=0)
+    product = normalized_term_freq_idf.multiply(query_df["normalized"], axis=0)
     return product
 
 
@@ -211,3 +182,27 @@ def write_to_file(file_path, content):
     with open(file_path, "w") as file:
         file.write(content)
     print("Your results are printed :)")
+
+
+#####################################################################
+#                            PHRASE QUERY                           #
+#####################################################################
+
+
+def find_matching_positions(query, positional_index):
+    term_lists = [[] for _ in range(10)]
+
+    for term in tokenize_and_stem(query):
+        if term not in positional_index:
+            return "No matches!!"
+        else:
+            for key, positions in positional_index[term][1].items():
+                term_lists[key - 1].extend(positions)
+
+    matching_positions = [
+        f"doc_{pos}"
+        for pos, positions in enumerate(term_lists, start=1)
+        if len(positions) == len(tokenize_and_stem(query))
+    ]
+
+    return f'{", ".join(matching_positions)}'

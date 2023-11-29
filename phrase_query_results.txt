@@ -1,0 +1,32 @@
+
+Vector Space Model for Query:
+        tf  w_tf       idf    tf_idf  normalized
+antony   1   1.0  0.522879  0.522879    0.707107
+brutus   1   1.0  0.522879  0.522879    0.707107
+
+
+Product Sum:
+doc_1    0.538393
+doc_2    0.577877
+dtype: float64
+
+
+Product (query * matched doc):
+           doc_1     doc_2
+antony  0.269196  0.288939
+brutus  0.269196  0.288939
+
+
+Similarity:
+doc_1    0.538393
+doc_2    0.577877
+dtype: float64
+
+
+Query Length:
+0.7394622130520805
+
+
+
+Related Docs:
+doc_1, doc_2
