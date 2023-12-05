@@ -8,12 +8,11 @@ from nltk.corpus import stopwords
 from natsort import natsorted
 import math
 import pandas as pd
+from nltk.stem import PorterStemmer
 
-stop_words = stopwords.words("english")
-stop_words.remove("in")
-stop_words.remove("to")
-stop_words.remove("where")
+stop_words = set(stopwords.words("english")) - set(["in", "to", "where"])
 positional_index = {}
+stemmed_dict = {}
 
 
 #####################################################################
@@ -26,15 +25,32 @@ def read_and_tokenize_documents(directory_path):
     for files in files_name:
         with open(os.path.join(directory_path, files), "r") as f:
             document = f.read()
-        document_of_terms.append(tokenize_and_stem(document))
+        stemmed_doc = tokenize_and_stem(document, stemmed_dict)
+        document_of_terms.append(stemmed_doc)
 
-    return document_of_terms
+    return document_of_terms, stemmed_dict
 
 
-def tokenize_and_stem(doc):
+def tokenize_and_stem(doc, stemmed_dict):
     token_docs = word_tokenize(doc)
-    prepared_doc = [terms for terms in token_docs if terms not in stop_words]
+    prepared_doc = [
+        stem(token, stemmed_dict)
+        for token in token_docs
+        if token.lower() not in stop_words
+    ]
     return prepared_doc
+
+
+def tokenize(doc):
+    token_docs = word_tokenize(doc)
+    prepared_doc = [token for token in token_docs if token.lower() not in stop_words]
+    return prepared_doc
+
+
+def stem(token, stemmed_dict):
+    stem_term = PorterStemmer().stem(token.lower())
+    stemmed_dict[stem_term] = token.lower()
+    return stem_term
 
 
 #####################################################################
@@ -50,32 +66,28 @@ def build_positional_index(document_of_terms):
     return positional_index
 
 
+def get_key_by_value(dictionary, target_value, default=None):
+    """Get the key for a given value in a dictionary."""
+    return next(
+        (key for key, value in dictionary.items() if value == target_value), default
+    )
+
+
 #####################################################################
 #                        TERM-FREQUANCY.TF                          #
 #####################################################################
-def flatten_documents(documents):
-    return [word for doc in documents for word in doc]
+def create_term_frequency_dataframe(positional_index, stemmed_dict):
+    term_frequency = {}
+    for stem_term, (_, postings) in positional_index.items():
+        term = stemmed_dict.get(stem_term, stem_term)
+        term_frequency[term] = {}
+        for doc_id, positions in postings.items():
+            col_name = f"doc_{doc_id}"
+            term_frequency[term][col_name] = len(positions)
+    df = pd.DataFrame.from_dict(term_frequency, orient="index")
+    df = df.fillna(0)
 
-
-def calculate_term_frequency(doc, all_words):
-    words_found = dict.fromkeys(all_words, 0)
-    for word in doc:
-        words_found[word] += 1
-    return list(words_found.values())
-
-
-def create_term_frequency_dataframe(document_of_terms):
-    all_words = flatten_documents(document_of_terms)
-    term_freq_data = [
-        calculate_term_frequency(doc, all_words) for doc in document_of_terms
-    ]
-
-    term_freq = pd.DataFrame(
-        term_freq_data,
-        index=["doc_" + str(i) for i in range(1, len(document_of_terms) + 1)],
-        columns=positional_index.keys(),
-    )
-    return term_freq.T
+    return df
 
 
 #####################################################################
@@ -92,12 +104,13 @@ def apply_weighted_term_freq_to_df(df):
 #####################################################################
 #                  INVERSE DOCUMENT FREQUANCY IDF                   #
 #####################################################################
-def calculate_term_frequency_document_frequency(term_freq_df):
-    term_freq = term_freq_df.sum(axis=1)
-    inverse_doc_freq = np.log10(10 / term_freq.astype(float))
+def calculate_doc_frequency_doc_inv_frequency(term_freq_df):
+    number_of_docs = len(term_freq_df.columns)
+    df = term_freq_df.sum(axis=1)
+    inverse_doc_freq = np.log10(number_of_docs / df.astype(float))
 
     idf = pd.DataFrame(
-        {"term_freq": term_freq, "inverse_doc_freq": inverse_doc_freq},
+        {"doc_freq": df, "inverse_doc_freq": inverse_doc_freq},
         index=term_freq_df.index,
     )
     return idf
@@ -191,18 +204,44 @@ def write_to_file(file_path, content):
 
 def find_matching_positions(query, positional_index):
     term_lists = [[] for _ in range(10)]
+    query_terms = tokenize(query)
+    if query_terms:
+        for term in query_terms:
+            if term not in list(stemmed_dict.values()):
+                return False
+            else:
+                for key, positions in positional_index[
+                    get_key_by_value(stemmed_dict, term)
+                ][1].items():
+                    term_lists[key - 1].extend(positions)
 
-    for term in tokenize_and_stem(query):
-        if term not in positional_index:
-            return "No matches!!"
-        else:
-            for key, positions in positional_index[term][1].items():
-                term_lists[key - 1].extend(positions)
+        matching_positions = [
+            f"doc_{pos}"
+            for pos, positions in enumerate(term_lists, start=1)
+            if len(positions) == len(query_terms)
+        ]
 
-    matching_positions = [
-        f"doc_{pos}"
-        for pos, positions in enumerate(term_lists, start=1)
-        if len(positions) == len(tokenize_and_stem(query))
-    ]
+        return f'{", ".join(matching_positions)}'
+    else:
+        return False
 
-    return f'{", ".join(matching_positions)}'
+
+# def find_matching_positions(query, positional_index):
+#     term_lists = [[] for _ in range(10)]
+#     query_terms = tokenize(query)
+#     for term in query_terms:
+#         if term not in list(stemmed_dict.values()):
+#             return False
+#         else:
+#             for key, positions in positional_index[
+#                 get_key_by_value(stemmed_dict, term)
+#             ][1].items():
+#                 term_lists[key - 1].extend(positions)
+
+#     matching_positions = [
+#         f"doc_{pos}"
+#         for pos, positions in enumerate(term_lists, start=1)
+#         if len(positions) == len(query_terms)
+#     ]
+
+#     return f'{", ".join(matching_positions)}'
