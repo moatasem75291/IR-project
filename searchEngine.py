@@ -3,10 +3,9 @@ from helper import *
 
 # 1-Read, Tokenization, and Steeming.
 docs_directory_path = "docs"
-document_of_terms, stemmed_dict = read_and_tokenize_documents(docs_directory_path)
-print(
-    f"Terms after tokenization, stemming, and removing stop words: \n\n{document_of_terms}\n\n"
-)
+document_of_tokens, document_of_terms = read_and_tokenize_documents(docs_directory_path)
+print(f"Tokens after tokenization: \n\n{document_of_tokens}\n\n")
+print(f"Terms after stemming: \n\n{document_of_terms}\n\n")
 
 
 # 2-Positional index
@@ -15,7 +14,7 @@ print(f"Positional Index: \n\n{positional_index}\n\n")
 
 
 # 3-Term Frequancy-TF
-term_freq_df = create_term_frequency_dataframe(positional_index, stemmed_dict)
+term_freq_df = create_term_frequency_dataframe(document_of_tokens)
 print(f"Term Frequency Table: \n\n{term_freq_df}\n\n")
 
 
@@ -47,30 +46,32 @@ print(f"TF.IDF Normalization: \n\n{normalized_term_freq_idf}\n\n")
 end_search = ""
 while end_search not in ["q", "Q"]:
     query = input("In the Phrase Query stage Search for: ")
-    related_docs_PQ_stage = find_matching_positions(query, positional_index)
-    query_terms = tokenize(query)
-    if related_docs_PQ_stage:
-        # save the result for Phrase query
-        document_lengths = calculate_document_lengths(tfidf)
-        normalized_term_freq_idf = normalize_term_freq_idf(tfidf, document_lengths)
-        query_df = create_query_dataframe(query_terms, normalized_term_freq_idf, tfdf)
-        product_result = calculate_product(query_df, normalized_term_freq_idf)
-        similarity = calculate_cosine_similarity(product_result)
-        try:
-            query_detailed = query_df.loc[query_terms]
-            # Write results to a text file
-            results_content = f"""
-Vector Space Model for Query:\n{query_detailed}\n\n
-Product Sum:\n{(product_result.sum()).loc[related_docs_PQ_stage.split(", "),]}\n\n
-Product (query * matched doc):\n{product_result.loc[query_terms, related_docs_PQ_stage.split(", ")]}\n\n
-Similarity:\n{similarity.loc[related_docs_PQ_stage.split(", "),]}\n\n
-Query Length:\n{math.sqrt(sum(query_df['idf'] ** 2))}\n\n"""
-            results_content += f"\n\nRelated Docs:\n{related_docs_PQ_stage}"
-            write_to_file("phrase_query_results.txt", results_content)
+    query, boolean_operator = check_contains_boolean_logic(query)
+    if boolean_operator == "and":
+        query = query.split(" and ")
+        returned_matches_doc = find_matching_positions(query, positional_index)
+        if returned_matches_doc:
+            returned_docs = and_boolean_query(returned_matches_doc)
+            returned_docs = "doc_" + ", doc_".join(returned_docs)
+            query = " ".join(query)
+            build_output_content(query, returned_docs, tfidf, tfdf)
 
-        except KeyError:
-            print(f"No such query found in the database:{query_terms}\nTRry Again")
+    elif boolean_operator == "or":
+        query = query.split(" or ")
+        returned_matches_doc = find_matching_positions(query, positional_index)
+        if returned_matches_doc:
+            returned_docs = or_boolean_query(returned_matches_doc)
+            returned_docs = "doc_" + ", doc_".join(returned_docs)
+            query = " ".join(query)
+            build_output_content(query, returned_docs, tfidf, tfdf)
+    elif boolean_operator == "not ":
+        query = query.split(" not ")
+        returned_matches_doc = find_matching_positions(query, positional_index)
+        returned_docs = complement_boolean_query(returned_matches_doc)
+        print(returned_docs)
     else:
-        results_content = f"No such query found in the database:{query_terms}"
-        print(results_content)
+        returned_matches_doc = phrase_query_serach(query, positional_index)
+        if returned_matches_doc:
+            build_output_content(query, returned_matches_doc, tfidf, tfdf)
+
     end_search = input("If you want to EXIT enter q/Q: ")

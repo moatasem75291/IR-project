@@ -4,15 +4,12 @@
 import numpy as np
 import os
 from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords
 from natsort import natsorted
 import math
 import pandas as pd
 from nltk.stem import PorterStemmer
 
-stop_words = set(stopwords.words("english")) - set(["in", "to", "where"])
 positional_index = {}
-stemmed_dict = {}
 
 
 #####################################################################
@@ -20,37 +17,28 @@ stemmed_dict = {}
 #####################################################################
 def read_and_tokenize_documents(directory_path):
     files_name = natsorted(os.listdir(directory_path))
-    document_of_terms = []
+    token_lists = []
+    term_lists = []
 
-    for files in files_name:
-        with open(os.path.join(directory_path, files), "r") as f:
+    for file_name in files_name:
+        with open(os.path.join(directory_path, file_name), "r") as f:
             document = f.read()
-        stemmed_doc = tokenize_and_stem(document, stemmed_dict)
-        document_of_terms.append(stemmed_doc)
+            tokens, terms = tokenize_and_stem(document)
+            token_lists.append(tokens)
+            term_lists.append(terms)
 
-    return document_of_terms, stemmed_dict
+    return token_lists, term_lists
 
 
-def tokenize_and_stem(doc, stemmed_dict):
+def tokenize_and_stem(doc):
     token_docs = word_tokenize(doc)
-    prepared_doc = [
-        stem(token, stemmed_dict)
-        for token in token_docs
-        if token.lower() not in stop_words
-    ]
-    return prepared_doc
+    prepared_tokens = [token.lower() for token in token_docs]
+    stemmed_terms = [stem(token) for token in token_docs]
+    return prepared_tokens, stemmed_terms
 
 
-def tokenize(doc):
-    token_docs = word_tokenize(doc)
-    prepared_doc = [token for token in token_docs if token.lower() not in stop_words]
-    return prepared_doc
-
-
-def stem(token, stemmed_dict):
-    stem_term = PorterStemmer().stem(token.lower())
-    stemmed_dict[stem_term] = token.lower()
-    return stem_term
+def stem(token):
+    return PorterStemmer().stem(token.lower())
 
 
 #####################################################################
@@ -66,26 +54,19 @@ def build_positional_index(document_of_terms):
     return positional_index
 
 
-def get_key_by_value(dictionary, target_value, default=None):
-    """Get the key for a given value in a dictionary."""
-    return next(
-        (key for key, value in dictionary.items() if value == target_value), default
-    )
-
-
 #####################################################################
 #                        TERM-FREQUANCY.TF                          #
 #####################################################################
-def create_term_frequency_dataframe(positional_index, stemmed_dict):
+def create_term_frequency_dataframe(document_of_tokens):
     term_frequency = {}
-    for stem_term, (_, postings) in positional_index.items():
-        term = stemmed_dict.get(stem_term, stem_term)
-        term_frequency[term] = {}
-        for doc_id, positions in postings.items():
-            col_name = f"doc_{doc_id}"
-            term_frequency[term][col_name] = len(positions)
-    df = pd.DataFrame.from_dict(term_frequency, orient="index")
-    df = df.fillna(0)
+
+    for doc_id, document in enumerate(document_of_tokens, start=1):
+        for term in document:
+            term_frequency.setdefault(term, {}).setdefault(doc_id, 0)
+            term_frequency[term][doc_id] += 1
+
+    df = pd.DataFrame.from_dict(term_frequency, orient="index").fillna(0)
+    df.columns = [f"doc_{col}" for col in df.columns]
 
     return df
 
@@ -94,11 +75,11 @@ def create_term_frequency_dataframe(positional_index, stemmed_dict):
 #                         WEIGHTED TF TABLE                         #
 #####################################################################
 def weighted_TF(x):
-    return math.log10(x) + 1 if x > 0 else 0
+    return np.log10(x) + 1 if x > 0 else 0
 
 
-def apply_weighted_term_freq_to_df(df):
-    return df.map(weighted_TF)
+def apply_weighted_term_freq_to_df(term_freq_df):
+    return term_freq_df.apply(lambda x: x.apply(weighted_TF))
 
 
 #####################################################################
@@ -162,9 +143,13 @@ def normalize_term_freq_idf(term_freq_inve_doc_freq, document_lengths):
 #                     TEST THE SEARCH ENGINE                        #
 #                     SAVE RESULT IN TXT FILE                       #
 #####################################################################
-def create_query_dataframe(query_terms, normalized_term_freq_idf, tfdf):
+def create_query_dataframe(
+    query_terms, normalized_term_freq_idf, tfdf, positional_index
+):
     query_df = pd.DataFrame(index=normalized_term_freq_idf.index)
-    query_df["tf"] = [1 if term in query_terms else 0 for term in query_df.index]
+    query_df["tf"] = [
+        1 if term in query_terms else 0 for term in positional_index.keys()
+    ]
     query_df["w_tf"] = query_df["tf"].apply(weighted_TF)
     query_df["idf"] = tfdf["inverse_doc_freq"] * query_df["w_tf"]
     query_df["tf_idf"] = query_df["w_tf"] * query_df["idf"]
@@ -200,19 +185,95 @@ def write_to_file(file_path, content):
 #####################################################################
 #                            PHRASE QUERY                           #
 #####################################################################
+def find_matching_positions(queries, positional_index):
+    final_result = []
+    for query in queries:
+        term_lists = [[] for _ in range(10)]
+        _, query_terms = tokenize_and_stem(query)
+        if query_terms:
+            for term in query_terms:
+                if term not in positional_index:
+                    return False
+                else:
+                    for key, positions in positional_index[term][1].items():
+                        term_lists[key - 1].extend(positions)
+
+            matching_positions = [
+                f"{pos}"
+                for pos, positions in enumerate(term_lists, start=1)
+                if len(positions) == len(query_terms)
+            ]
+
+            final_result.append(matching_positions)
+        else:
+            return False
+    return final_result
 
 
-def find_matching_positions(query, positional_index):
+def and_boolean_query(returned_matches_docs):
+    if not returned_matches_docs or any(
+        not doc_set for doc_set in returned_matches_docs
+    ):
+        print("No matched documents.")
+        return None
+
+    temp_result = set(returned_matches_docs[0])
+
+    for doc_set in returned_matches_docs[1:]:
+        temp_result = temp_result.intersection(set(doc_set))
+
+    return list(temp_result)
+
+
+def or_boolean_query(returned_matches_docs):
+    if not returned_matches_docs or any(
+        not doc_set for doc_set in returned_matches_docs
+    ):
+        print("No matched documents.")
+        return None
+
+    temp_result = set()
+
+    for doc_set in returned_matches_docs:
+        temp_result.update(doc_set)
+
+    return list(temp_result)
+
+
+def complement_boolean_query(query_set):
+    full_set = set(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"])
+    if not query_set:
+        print("No query set provided.")
+        return list(full_set)
+
+    complement_set = full_set.difference(query_set)
+    return list(complement_set)
+
+
+def check_contains_boolean_logic(query):
+    query_words = query.lower().split(" ")
+    boolean_operator = None
+
+    if "and" in query_words:
+        boolean_operator = "and"
+    elif "or" in query_words:
+        boolean_operator = "or"
+    elif "not" in query_words:
+        boolean_operator = "not"
+    query_words = " ".join(query_words)
+
+    return query_words, boolean_operator
+
+
+def phrase_query_serach(query, positional_index):
     term_lists = [[] for _ in range(10)]
-    query_terms = tokenize(query)
+    _, query_terms = tokenize_and_stem(query)
     if query_terms:
         for term in query_terms:
-            if term not in list(stemmed_dict.values()):
+            if term not in positional_index:
                 return False
             else:
-                for key, positions in positional_index[
-                    get_key_by_value(stemmed_dict, term)
-                ][1].items():
+                for key, positions in positional_index[term][1].items():
                     term_lists[key - 1].extend(positions)
 
         matching_positions = [
@@ -221,27 +282,39 @@ def find_matching_positions(query, positional_index):
             if len(positions) == len(query_terms)
         ]
 
-        return f'{", ".join(matching_positions)}'
+        return ", ".join(matching_positions)
     else:
         return False
 
 
-# def find_matching_positions(query, positional_index):
-#     term_lists = [[] for _ in range(10)]
-#     query_terms = tokenize(query)
-#     for term in query_terms:
-#         if term not in list(stemmed_dict.values()):
-#             return False
-#         else:
-#             for key, positions in positional_index[
-#                 get_key_by_value(stemmed_dict, term)
-#             ][1].items():
-#                 term_lists[key - 1].extend(positions)
+def build_output_content(query, related_docs_PQ_stage, tfidf, tfdf):
+    query_tokens, query_terms = tokenize_and_stem(query)
 
-#     matching_positions = [
-#         f"doc_{pos}"
-#         for pos, positions in enumerate(term_lists, start=1)
-#         if len(positions) == len(query_terms)
-#     ]
+    if related_docs_PQ_stage:
+        # save the result for Phrase query
+        document_lengths = calculate_document_lengths(tfidf)
+        normalized_term_freq_idf = normalize_term_freq_idf(tfidf, document_lengths)
+        query_df = create_query_dataframe(
+            query_terms, normalized_term_freq_idf, tfdf, positional_index
+        )
+        product_result = calculate_product(query_df, normalized_term_freq_idf)
+        similarity = calculate_cosine_similarity(product_result)
 
-#     return f'{", ".join(matching_positions)}'
+        try:
+            query_detailed = query_df.loc[query_tokens]
+
+            # Write results to a text file
+            results_content = f"""
+Vector Space Model for Query:\n{query_detailed}\n\n
+Product Sum:\n{(product_result.sum()).loc[related_docs_PQ_stage.split(", "),]}\n\n
+Product (query * matched doc):\n{product_result.loc[query_tokens, related_docs_PQ_stage.split(", ")]}\n\n
+Similarity:\n{similarity.loc[related_docs_PQ_stage.split(", "),]}\n\n
+Query Length:\n{math.sqrt(sum(query_df['idf'] ** 2))}\n\n"""
+            results_content += f"\n\nRelated Docs:\n{related_docs_PQ_stage}"
+            write_to_file("phrase_query_results.txt", results_content)
+
+        except KeyError:
+            print(f"No such query found in the database:{query_tokens}\nTry Again.\n")
+    else:
+        results_content = f"No such query found in the database:{query_terms}"
+        print(results_content)
