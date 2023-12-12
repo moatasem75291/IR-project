@@ -64,11 +64,17 @@ while end_search not in ["q", "Q"]:
             returned_docs = "doc_" + ", doc_".join(returned_docs)
             query = " ".join(query)
             build_output_content(query, returned_docs, tfidf, tfdf)
-    elif boolean_operator == "not ":
+    elif boolean_operator == "not":
         query = query.split(" not ")
         returned_matches_doc = find_matching_positions(query, positional_index)
-        returned_docs = complement_boolean_query(returned_matches_doc)
-        print(returned_docs)
+        print(returned_matches_doc)
+        returned_docs = complement_boolean_query(
+            returned_matches_doc[0], returned_matches_doc[1]
+        )
+        returned_docs = "doc_" + ", doc_".join(returned_docs)
+        query = " ".join(query)
+        build_output_content(query, returned_docs)
+
     else:
         returned_matches_doc = phrase_query_serach(query, positional_index)
         if returned_matches_doc:

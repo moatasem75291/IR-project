@@ -240,13 +240,19 @@ def or_boolean_query(returned_matches_docs):
     return list(temp_result)
 
 
-def complement_boolean_query(query_set):
+def complement_boolean_query(first_list, second_list):
     full_set = set(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"])
-    if not query_set:
-        print("No query set provided.")
-        return list(full_set)
 
-    complement_set = full_set.difference(query_set)
+    if not first_list:
+        raise ("No first list provided.")
+
+    if not second_list:
+        raise ("No second list provided.")
+
+    first_set = set(first_list)
+    second_set = set(second_list)
+
+    complement_set = first_set.difference(second_set)
     return list(complement_set)
 
 
